@@ -4,10 +4,13 @@ from datetime import datetime
 
 # --- 1. 기본 설정 및 구글 시트 연결 ---
 # st.cache_resource는 화면이 새로고침될 때마다 매번 구글에 로그인하지 않게 연결 상태를 기억해두는 기능이야.
+import json
+
 @st.cache_resource
 def init_connection():
-    # 발급받은 JSON 키 파일 이름 입력! (이 파일이 파이썬 파일이랑 같은 폴더에 있어야 해)
-    gc = gspread.service_account(filename='hitem.json')
+    # 스트림릿 비밀 금고(secrets)에서 키 텍스트를 꺼내서 변환하는 마법!
+    key_dict = json.loads(st.secrets["gcp_service_account"])
+    gc = gspread.service_account_from_dict(key_dict)
     return gc
 
 gc = init_connection()
