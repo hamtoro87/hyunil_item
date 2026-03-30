@@ -70,7 +70,7 @@ with st.form("inventory_form", clear_on_submit=True):
     with col2:
         qty = st.number_input("개수", min_value=1, step=1)
         
-    selected_name = st.selectbox("담당자 이름", ["선택하세요"] + names_list)
+    selected_name = st.selectbox("사용자 이름", ["선택하세요"] + names_list)
     note = st.text_input("비고 (선택사항)")
 
     # 모바일에서 버튼이 화면 너비에 꽉 차도록 큼직하게 만들기
