@@ -46,7 +46,20 @@ item_names = list(items_dict.keys())
 
 # --- 4. 웹앱 화면 UI 구성 ---
 # 제목 변경 적용
-st.title("📦 현일고 창고 출납대장")
+# 💡 [핵심 수정] 폰 화면에 맞춰 글자 크기가 자동 조절되는 반응형 제목 적용!
+st.markdown("""
+<style>
+    .main-title {
+        text-align: center;
+        /* 폰이 좁으면 작게, 넓으면 크게! (최소 1.5rem ~ 최대 2.5rem) */
+        font-size: clamp(1.5rem, 7vw, 2.5rem); 
+        font-weight: bold;
+        margin-bottom: 25px;
+        margin-top: 10px;
+    }
+</style>
+<div class="main-title">📦 현일고 창고 출납대장</div>
+""", unsafe_allow_html=True)
 
 # 💡 [핵심 수정] 폼(Form) 바깥으로 품명 선택을 빼서 누르자마자 즉각 반응하게 만듦!
 selected_item = st.selectbox("품명 선택", ["선택하세요"] + item_names)
