@@ -16,14 +16,18 @@ def init_connection():
 
 gc = init_connection()
 
-SPREADSHEET_NAME = '창고물품출납대장' # 🚨 꼭 네 파일 이름으로 수정해!
+SPREADSHEET_NAME = '창고물품출납대장' # 🚨 꼭 네 파일 이름으로 수정!
 sh = gc.open(SPREADSHEET_NAME)
 sheet1 = sh.worksheet("시트1") 
 sheet2 = sh.worksheet("시트2") 
 
-# --- 2. 로그인 세션 관리 ---
+# --- 2. 로그인 및 세션 상태 초기화 ---
 if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
+
+# 💡 [신규] 방금 등록한 물품 목록을 저장할 저장소 만들기
+if 'added_items_history' not in st.session_state:
+    st.session_state['added_items_history'] = []
 
 if not st.session_state['logged_in']:
     st.markdown("""
@@ -39,7 +43,7 @@ if not st.session_state['logged_in']:
             pwd = st.text_input("관리자 비밀번호를 입력하세요", type="password")
             submit_btn = st.form_submit_button("로그인", use_container_width=True)
             if submit_btn:
-                if pwd == "0000": # 🚨 비밀번호 설정
+                if pwd == "0000": # 🚨 비밀번호
                     st.session_state['logged_in'] = True
                     st.rerun() 
                 else:
@@ -47,16 +51,16 @@ if not st.session_state['logged_in']:
     st.stop()
 
 # ==========================================
-# 🔓 로그인 성공 시 화면
+# 🔓 관리자 메뉴 시작
 # ==========================================
 
 st.sidebar.title("⚙️ 관리자 메뉴")
-# 💡 [메뉴 추가] '물품입고' 메뉴가 새로 생겼어!
 menu = st.sidebar.radio("원하는 작업을 선택하세요", ["대장 확인", "재고관리", "물품입고", "사용자관리"])
 
 st.sidebar.markdown("---")
 if st.sidebar.button("로그아웃"):
     st.session_state['logged_in'] = False
+    st.session_state['added_items_history'] = [] # 로그아웃 시 기록 삭제
     st.rerun()
 
 # 📌 [메뉴 1] 대장 확인
@@ -68,68 +72,78 @@ if menu == "대장 확인":
     else:
         st.info("기록된 내역이 없습니다.")
 
-# 📌 [메뉴 2] 재고관리 (수정 시 실시간 반영 로직 추가)
+# 📌 [메뉴 2] 재고관리
 elif menu == "재고관리":
     st.subheader("📦 창고 재고 및 품목 관리")
-    
     data2 = sheet2.get_all_values()
-    inventory_data = []
-    items_dict = {}
-    
-    for i, row in enumerate(data2[1:], start=2):
-        if len(row) > 0 and row[0].strip():
-            name, stock, unit = row[0].strip(), row[1], row[2]
-            inventory_data.append({"품명": name, "재고": stock, "단위": unit})
-            items_dict[name] = {'row': i, 'stock': stock, 'unit': unit}
+    inventory_data = [{"품명": r[0].strip(), "재고": r[1], "단위": r[2]} for r in data2[1:] if r[0].strip()]
     
     if inventory_data:
         st.dataframe(pd.DataFrame(inventory_data), use_container_width=True, hide_index=True)
     
     st.markdown("---")
     st.markdown("#### ✏️ 재고 정보 수정")
-    target_item = st.selectbox("수정할 품명을 선택하세요", ["선택하세요"] + list(items_dict.keys()))
+    item_list = [d["품명"] for d in inventory_data]
+    target_item = st.selectbox("수정할 품명을 선택하세요", ["선택하세요"] + item_list)
     
     if target_item != "선택하세요":
-        item_info = items_dict[target_item]
-        edit_mode = st.checkbox(f"'{target_item}' 수정 모드 활성화")
+        # 해당 품목 정보 찾기
+        item_row = next(i+2 for i, r in enumerate(data2[1:]) if r[0].strip() == target_item)
+        item_info = next(d for d in inventory_data if d["품명"] == target_item)
         
+        edit_mode = st.checkbox(f"'{target_item}' 수정 모드 활성화")
         if edit_mode:
             with st.container(border=True):
                 col1, col2 = st.columns(2)
-                new_stock = col1.number_input("수정 재고량", value=int(item_info['stock']) if str(item_info['stock']).isdigit() else 0)
-                new_unit = col2.text_input("수정 단위", value=item_info['unit'])
-                confirm = st.checkbox("데이터를 수정하는 것에 동의해!")
+                new_stock = col1.number_input("수정 재고량", value=int(item_info['재고']) if str(item_info['재고']).isdigit() else 0)
+                new_unit = col2.text_input("수정 단위", value=item_info['단위'])
+                confirm = st.checkbox("데이터를 수정하려면 체크해 주세요.")
                 
                 if st.button("수정 완료 적용", disabled=not confirm, type="primary"):
-                    sheet2.update_cell(item_info['row'], 2, new_stock)
-                    sheet2.update_cell(item_info['row'], 3, new_unit)
-                    st.success("✅ 수정 완료! 화면을 다시 불러옵니다.")
-                    time.sleep(1) # 메시지 볼 시간 1초 주기
-                    st.rerun() # 💡 여기서 앱을 다시 실행해서 표를 즉시 업데이트!
+                    sheet2.update_cell(item_row, 2, new_stock)
+                    sheet2.update_cell(item_row, 3, new_unit)
+                    st.success("✅ 수정 완료!")
+                    time.sleep(1)
+                    st.rerun()
 
-# 📌 [메뉴 3] 물품입고 (신규 품목 등록 기능)
+# 📌 [메뉴 3] 물품입고 (💡 기록 보관 기능 추가)
 elif menu == "물품입고":
     st.subheader("🆕 신규 물품 등록")
-    st.info("창고에 새로운 물건을 처음 들여올 때 여기서 등록하세요.")
     
     with st.form("new_item_form", clear_on_submit=True):
-        new_name = st.text_input("신규 품명 (예: A4용지)")
+        new_name = st.text_input("신규 품명")
         col1, col2 = st.columns(2)
         new_stock = col1.number_input("초기 재고량", min_value=0, step=1)
-        new_unit = col2.text_input("단위 (예: 박스, 개)")
-        
-        submit_btn = st.form_submit_button("신규 물품 등록하기", use_container_width=True)
+        new_unit = col2.text_input("단위")
+        submit_btn = st.form_submit_button("신규 물품 등록", use_container_width=True)
         
         if submit_btn:
             if new_name and new_unit:
-                # 시트2의 A, B, C열에 데이터 추가 (D열은 사용자 이름이니까 건드리지 않음)
-                # 시트의 맨 아래에 행을 추가하는 방식이야.
+                # 1. 구글 시트에 저장
                 sheet2.append_row([new_name, new_stock, new_unit])
-                st.success(f"✅ '{new_name}' 물품이 등록되었습니다.")
-                time.sleep(1)
+                
+                # 2. 💡 [핵심] 세션 히스토리에 방금 입력한 거 추가
+                now = datetime.now().strftime("%H:%M:%S")
+                history_entry = {"등록 시간": now, "품명": new_name, "초기 재고": new_stock, "단위": new_unit}
+                # 최신 것이 위로 오게 리스트 맨 앞에 삽입
+                st.session_state['added_items_history'].insert(0, history_entry)
+                
+                st.success(f"✅ '{new_name}' 등록 완료!")
+                time.sleep(0.5)
                 st.rerun()
             else:
-                st.error("품명과 단위를 모두 입력하세요.")
+                st.error("품명과 단위를 입력하세요.")
+
+    # 💡 등록한 목록 순차적으로 보여주는 영역
+    if st.session_state['added_items_history']:
+        st.markdown("---")
+        st.markdown("#### 🕒 방금 등록한 목록 (최신순)")
+        history_df = pd.DataFrame(st.session_state['added_items_history'])
+        st.table(history_df) # 깔끔하게 표 형태로 띄워줌
+        
+        if st.button("목록 비우기"):
+            st.session_state['added_items_history'] = []
+            st.rerun()
 
 # 📌 [메뉴 4] 사용자관리
 elif menu == "사용자관리":
@@ -150,8 +164,7 @@ elif menu == "사용자관리":
             if new_user and new_user not in names_list:
                 sheet2.update_cell(len(col_d) + 1, 4, new_user)
                 st.success("추가 완료!")
-                time.sleep(1)
-                st.rerun()
+                time.sleep(1); st.rerun()
 
     with col_right:
         st.markdown("**🗑️ 삭제**")
@@ -161,7 +174,4 @@ elif menu == "사용자관리":
                 for i, val in enumerate(col_d):
                     if val.strip() == del_user:
                         sheet2.update_cell(i + 1, 4, "")
-                        st.success("삭제 완료!")
-                        time.sleep(1)
-                        st.rerun()
-                        break
+                        st.success("삭제 완료!"); time.sleep(1); st.rerun(); break
